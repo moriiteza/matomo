@@ -10,8 +10,10 @@
 namespace Piwik\Plugins\SEO\tests\Integration;
 
 use Piwik\DataTable\Renderer;
+use Piwik\EventDispatcher;
 use Piwik\Piwik;
 use Piwik\Plugins\SEO\API;
+use Piwik\Plugins\SEO\Metric\Bing;
 use Piwik\Tests\Framework\Fixture;
 use Piwik\Tests\Framework\Mock\FakeAccess;
 use Piwik\Tests\Framework\TestCase\IntegrationTestCase;
@@ -37,8 +39,7 @@ class SEOTest extends IntegrationTestCase
         // Needed to load the Intl_NumberFormatNumber translation string used when formatting the ranking numbers
         Fixture::loadAllTranslations();
 
-        // Google and Bing may not show the indexed pages count for some user agents, some UA strings will work for
-        // Google, but not Bing and visa-versa. This user agent string works for both as of 2023-06-26:
+        // Bing may not show the indexed pages count for some user agents, This user agent string works as of 2023-06-26:
         $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36';
     }
 
@@ -47,6 +48,15 @@ class SEOTest extends IntegrationTestCase
      */
     public function testAPI()
     {
+        // skip testing Bing metric as it's flaky
+        EventDispatcher::getInstance()->addObserver('SEO.getMetricsProviders', function (&$providers) {
+            foreach ($providers as $idx => $provider) {
+                if ($provider instanceof Bing) {
+                    unset($providers[$idx]);
+                }
+            }
+        });
+
         $dataTable = API::getInstance()->getRank('http://matomo.org/');
         $renderer = Renderer::factory('json');
         $renderer->setTable($dataTable);

@@ -18,6 +18,7 @@ use Piwik\Plugins\PrivacyManager\DoNotTrackHeaderChecker;
 use Piwik\Request;
 use Piwik\Tracker\IgnoreCookie;
 use Piwik\Url;
+use Piwik\UrlHelper;
 use Piwik\View;
 
 /*
@@ -205,6 +206,20 @@ class OptOutManager
         bool $applyStyling,
         bool $showIntro
     ): string {
+        $parsedUrl = parse_url($matomoUrl);
+
+        if (
+            (!empty($matomoUrl) && false === $parsedUrl)
+            || (!empty($parsedUrl['scheme']) && !in_array(strtolower($parsedUrl['scheme']), ['http', 'https']))
+            || (empty($parsedUrl['host']) || !Url::isValidHost($parsedUrl['host']))
+        ) {
+            throw new \Piwik\Exception\Exception('The provided URL is invalid.');
+        }
+
+        // We put together the url based on the parsed parameters manually to ensure it might not include unexpected values
+        // for protocol less urls starting with //, we need to prepend the double slash again
+        $matomoUrl = (strpos($matomoUrl, '//') === 0 ? '//' : '') . UrlHelper::getParseUrlReverse($parsedUrl);
+
         return '<div id="matomo-opt-out"></div>
 <script src="' . rtrim($matomoUrl, '/') . '/index.php?module=CoreAdminHome&action=optOutJS&divId=matomo-opt-out&language=' . $language . ($applyStyling ? '&backgroundColor=' . $backgroundColor . '&fontColor=' . $fontColor . '&fontSize=' . $fontSize . '&fontFamily=' . $fontFamily : '') . '&showIntro=' . ($showIntro ? '1' : '0') . '"></script>';
     }
@@ -450,24 +465,43 @@ JS;
                 if (settings.showIntro) {
                     content += '<p>'+settings.YouMayOptOut2+' '+settings.YouMayOptOut3+'</p>';                       
                 }
-                if (useTracker) {
-                    content += '<input onclick="_paq.push([\'optUserOut\']);showContent(false, null, true);" id="trackVisits" type="checkbox" checked="checked" />';
-                } else {
-                    content += '<input onclick="window.MatomoConsent.consentRevoked();showContent(false);" id="trackVisits" type="checkbox" checked="checked" />';
-                }
+                content += '<input id="trackVisits" type="checkbox" checked="checked" />';
                 content += '<label for="trackVisits"><strong><span>'+settings.YouAreNotOptedOut+' '+settings.UncheckToOptOut+'</span></strong></label>';                               
             } else {
                 if (settings.showIntro) {
                     content += '<p>'+settings.OptOutComplete+' '+settings.OptOutCompleteBis+'</p>';
                 }
-                if (useTracker) {
-                    content += '<input onclick="_paq.push([\'forgetUserOptOut\']);showContent(true, null, true);" id="trackVisits" type="checkbox" />';
-                } else {
-                    content += '<input onclick="window.MatomoConsent.consentGiven();showContent(true);" id="trackVisits" type="checkbox" />';
-                }
+                content += '<input id="trackVisits" type="checkbox" />';
                 content += '<label for="trackVisits"><strong><span>'+settings.YouAreOptedOut+' '+settings.CheckToOptIn+'</span></strong></label>';
             }                   
             div.innerHTML = content;      
+
+            var tV = document.getElementById('trackVisits');
+            if (consent) {
+                if (useTracker) {
+                    tV.addEventListener("click", function (e) {
+                        _paq.push(['optUserOut']);
+                        showContent(false, null, true);
+                    });
+                } else {
+                    tV.addEventListener("click", function (e) {
+                        window.MatomoConsent.consentRevoked();
+                        showContent(false);
+                    });
+                }
+            } else {
+                if (useTracker) {
+                    tV.addEventListener("click", function (e) {
+                        _paq.push(['forgetUserOptOut']);
+                        showContent(true, null, true);
+                    });
+                } else {
+                    tV.addEventListener("click", function (e) {
+                        window.MatomoConsent.consentGiven();
+                        showContent(true);
+                    });
+                }
+            }
         };   
 
         window.MatomoConsent = {                         

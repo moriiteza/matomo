@@ -408,6 +408,12 @@ class PrivacyManager extends Plugin
         $translationKeys[] = 'PrivacyManager_SecurityProceduresIntro';
         $translationKeys[] = 'PrivacyManager_SeeAlsoOurOfficialGuidePrivacy';
         $translationKeys[] = 'PrivacyManager_SelectWebsite';
+        $translationKeys[] = 'PrivacyManager_SiteDataNotAvailable';
+        $translationKeys[] = 'PrivacyManager_SiteDataNotAvailableCertainSites';
+        $translationKeys[] = 'PrivacyManager_VisitorLogsProfilesDisabledMessage';
+        $translationKeys[] = 'PrivacyManager_VisitorLogsProfilesSiteNamesDisabledMessage';
+        $translationKeys[] = 'PrivacyManager_PleaseEnableVisitorLogsProfiles';
+        $translationKeys[] = 'PrivacyManager_PleaseEnableVisitorLogsProfilesSites';
         $translationKeys[] = 'PrivacyManager_TeaserHeader';
         $translationKeys[] = 'PrivacyManager_TrackingOptOut';
         $translationKeys[] = 'PrivacyManager_ShowIntro';
@@ -455,6 +461,23 @@ class PrivacyManager extends Plugin
         $translationKeys[] = 'Overlay_Location';
         $translationKeys[] = 'General_UserId';
         $translationKeys[] = 'General_Done';
+        $translationKeys[] = 'PrivacyManager_UseRandomizeConfigId';
+        $translationKeys[] = 'PrivacyManager_RandomizeConfigIdNote';
+        $translationKeys[] = 'PrivacyManager_Compliance';
+        $translationKeys[] = 'PrivacyManager_ComplianceSelectSite';
+        $translationKeys[] = 'PrivacyManager_ComplianceEnforceCheckboxIntro';
+        $translationKeys[] = 'PrivacyManager_ComplianceEnforceCheckboxTitle';
+        $translationKeys[] = 'PrivacyManager_ComplianceEnforceCheckboxHelp';
+        $translationKeys[] = 'PrivacyManager_ComplianceTableSettingName';
+        $translationKeys[] = 'PrivacyManager_ComplianceTableSettingStatus';
+        $translationKeys[] = 'PrivacyManager_ComplianceTableSettingNotes';
+        $translationKeys[] = 'PrivacyManager_ComplianceCompliant';
+        $translationKeys[] = 'PrivacyManager_ComplianceNonCompliant';
+        $translationKeys[] = 'PrivacyManager_ComplianceComplianceUnknown';
+        $translationKeys[] = 'General_ErrorTryAgain';
+        $translationKeys[] = 'General_ExceptionContactSupportGeneric';
+        $translationKeys[] = 'PrivacyManager_ComplianceCNILTitle';
+        $translationKeys[] = 'PrivacyManager_ComplianceCNILDescription';
     }
 
     public function setTrackerCacheGeneral(&$cacheContent)
@@ -476,6 +499,7 @@ class PrivacyManager extends Plugin
         $stylesheets[] = "plugins/PrivacyManager/stylesheets/gdprOverview.less";
         $stylesheets[] = "plugins/PrivacyManager/vue/src/AnonymizeLogData/AnonymizeLogData.less";
         $stylesheets[] = "plugins/PrivacyManager/stylesheets/footerLinks.less";
+        $stylesheets[] = "plugins/PrivacyManager/stylesheets/compliance.less";
     }
 
     /**

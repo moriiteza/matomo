@@ -13,6 +13,7 @@ use Exception;
 use Piwik\Access\CapabilitiesProvider;
 use Piwik\API\Request;
 use Piwik\Access\RolesProvider;
+use Piwik\Request\AuthenticationToken;
 use Piwik\Container\StaticContainer;
 use Piwik\Plugins\SitesManager\API as SitesManagerApi;
 use Piwik\Session\SessionAuth;
@@ -158,15 +159,14 @@ class Access
 
         $result = null;
 
-        $forceApiSessionPost = Common::getRequestVar('force_api_session', 0, 'int', $_POST);
-        $forceApiSessionGet = Common::getRequestVar('force_api_session', 0, 'int', $_GET);
         $isApiRequest = Piwik::getModule() === 'API' && (Piwik::getAction() === 'index' || !Piwik::getAction());
         $apiMethod = Request::getMethodIfApiRequest(null);
         $isGetApiRequest = !empty($apiMethod) && 1 === substr_count($apiMethod, '.') && strpos($apiMethod, '.get') > 0;
 
-        if (($forceApiSessionPost && $isApiRequest) || ($forceApiSessionGet && $isApiRequest && $isGetApiRequest)) {
-            $request = ($forceApiSessionGet && $isApiRequest && $isGetApiRequest) ? $_GET : $_POST;
-            $tokenAuth = Common::getRequestVar('token_auth', '', 'string', $request);
+        $token = StaticContainer::get(AuthenticationToken::class);
+
+        if ($isApiRequest && $token->isSessionToken() && ($token->wasTokenAuthProvidedSecurely() || $isGetApiRequest)) {
+            $tokenAuth = $token->getAuthToken();
             Session::start();
             $auth = StaticContainer::get(SessionAuth::class);
             $auth->setTokenAuth($tokenAuth);
@@ -224,10 +224,8 @@ class Access
 
     /**
      * Make sure a login name is set
-     *
-     * @return true
      */
-    protected function makeSureLoginNameIsSet()
+    protected function makeSureLoginNameIsSet(): void
     {
         if (empty($this->login)) {
             // flag to force non empty login so Super User is not mistaken for anonymous
@@ -649,6 +647,8 @@ class Access
     /**
      * Executes a callback with superuser privileges, making sure those privileges are rescinded
      * before this method exits. Privileges will be rescinded even if an exception is thrown.
+     *
+     * Use this method with care, as it might open up attack vectors
      *
      * @param callback $function The callback to execute. Should accept no arguments.
      * @return mixed The result of `$function`.

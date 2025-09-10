@@ -184,7 +184,7 @@ describe("UIIntegrationTest", function () { // TODO: Rename to Piwik?
             testEnvironment.save();
 
             // use columns query param to make sure columns works when supplied in URL fragment
-            await page.goto("?" + urlBase + "#?" + generalParams + "&category=General_Visitors&subcategory=General_Overview&columns=nb_visits,nb_actions");
+            await page.goto("?" + urlBase + "#?" + generalParams + "&category=General_Visitors&subcategory=General_Overview&columns=nb_visits,nb_actions,hits");
             await page.waitForNetworkIdle();
             await page.evaluate(() => { // give table headers constant width so the screenshot stays the same
               $('.dataTableScroller').css('overflow-x', 'scroll');
@@ -554,7 +554,8 @@ describe("UIIntegrationTest", function () { // TODO: Rename to Piwik?
         it('should load the ecommerce log page', async function () {
             await page.goto("?" + urlBase + "#?" + generalParams + "&category=Goals_Ecommerce&subcategory=Goals_EcommerceLog");
 
-            await page.hover('.dataTableVizVisitorLog .row:nth-child(2) .actionList li.action');
+            const action = await page.jQuery('.dataTableVizVisitorLog .card:eq(1) .actionList li.action');
+            await action.hover();
             await page.waitForSelector('.ui-tooltip', {visible: true, timeout: 250});
 
             var tooltipContent = await page.evaluate(() => {
@@ -602,8 +603,16 @@ describe("UIIntegrationTest", function () { // TODO: Rename to Piwik?
             expect(await screenshotPageWrap()).to.matchImage('admin_home');
         });
 
+        it('should not render the Admin when resized below 200x200', async function () {
+            await page.webpage.setViewport({ width: 199, height: 199 });
+            await page.waitForTimeout(100);
+
+            expect(await page.screenshot({fullPage: true})).to.matchImage('admin_home_low_size');
+        });
+
         // Admin user settings (plugins not displayed)
         it('should load the Manage > Websites admin page correctly', async function () {
+            await page.webpage.setViewport({ width: 1350, height: 768 });
             await page.goto("?" + generalParams + "&module=SitesManager&action=index");
             await page.evaluate(function () {
                 $('.form-help:contains(UTC time is)').hide();
@@ -632,6 +641,8 @@ describe("UIIntegrationTest", function () { // TODO: Rename to Piwik?
         });
 
         it('should load the config file page correctly', async function () {
+            testEnvironment.configOverride.mail = {username: '<a href="test">value</a>'};
+            testEnvironment.save();
             await page.goto("?" + generalParams + "&module=Diagnostics&action=configfile");
 
             expect(await screenshotPageWrap()).to.matchImage('admin_diagnostics_configfile');
@@ -725,9 +736,9 @@ describe("UIIntegrationTest", function () { // TODO: Rename to Piwik?
 
         it('should show the generated report when clicking the download button', async function () {
             await page.evaluate(function () {
-                $('#downloadReportForm_7').attr('target', ''); // do not open the download in new windows
+                $('#downloadReportForm_15').attr('target', ''); // do not open the download in new windows
             });
-            await page.click('#downloadReportForm_7 + a');
+            await page.click('#downloadReportForm_15 + a');
             await page.waitForNetworkIdle();
 
             expect(await page.screenshot({fullPage: true})).to.matchImage('email_reports_download');
@@ -735,7 +746,7 @@ describe("UIIntegrationTest", function () { // TODO: Rename to Piwik?
 
         it('should load the scheduled reports when Edit button is clicked', async function () {
             await page.goto("?" + generalParams + "&module=ScheduledReports&action=index");
-            await page.click('.entityTable tr:nth-child(3) button[title="Edit"]');
+            await page.click('.entityTable tr:nth-child(11) button[title="Edit"]');
 
             expect(await screenshotPageWrap()).to.matchImage('email_reports_editor');
         });

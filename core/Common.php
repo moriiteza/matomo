@@ -30,6 +30,7 @@ class Common
     public const REFERRER_TYPE_WEBSITE = 3;
     public const REFERRER_TYPE_CAMPAIGN = 6;
     public const REFERRER_TYPE_SOCIAL_NETWORK = 7;
+    public const REFERRER_TYPE_AI_ASSISTANT = 8;
 
     // Flag used with htmlspecialchar. See php.net/htmlspecialchars.
     public const HTML_ENCODING_QUOTE_STYLE = ENT_QUOTES;
@@ -101,18 +102,16 @@ class Common
      */
     public static function unprefixTable($table)
     {
-        static $prefixTable = null;
-        if (is_null($prefixTable)) {
-            $prefixTable = Config::getInstance()->database['tables_prefix'];
-        }
+        $prefixTable = Config::getInstance()->database['tables_prefix'];
+
         if (
             empty($prefixTable)
             || strpos($table, $prefixTable) !== 0
         ) {
             return $table;
         }
-        $count = 1;
-        return str_replace($prefixTable, '', $table, $count);
+
+        return substr($table, strlen($prefixTable));
     }
 
     /*
@@ -297,7 +296,7 @@ class Common
     /**
      * Secure wrapper for unserialize, which by default disallows unserializing classes
      *
-     * @param string $string String to unserialize
+     * @param string|null $string String to unserialize
      * @param array $allowedClasses Class names that should be allowed to unserialize
      * @param bool $rethrow Whether to rethrow exceptions or not.
      * @return mixed
@@ -339,7 +338,7 @@ class Common
      *
      * **Implementation Details**
      *
-     * - [htmlspecialchars](http://php.net/manual/en/function.htmlspecialchars.php) is used to escape text.
+     * - [htmlspecialchars](https://php.net/manual/en/function.htmlspecialchars.php) is used to escape text.
      * - Single quotes are not escaped so **Piwik's amazing community** will still be
      *   **Piwik's amazing community**.
      * - Use of the `magic_quotes` setting will not break this method.
@@ -423,7 +422,7 @@ class Common
     /**
      * Unsanitizes a single input value and returns the result.
      *
-     * @param string $value
+     * @param string|null $value
      * @return string  unsanitized input
      * @api
      */
@@ -680,7 +679,7 @@ class Common
      * Convert hexadecimal representation into binary data.
      * !! Will emit warning if input string is not hex!!
      *
-     * @see http://php.net/bin2hex
+     * @see https://php.net/bin2hex
      *
      * @param string $str Hexadecimal representation
      * @return string
@@ -962,10 +961,10 @@ class Common
             return self::LANGUAGE_CODE_INVALID;
         }
         foreach ($matches as $parts) {
-            $langIso639 = $parts[1];
-            if (empty($langIso639)) {
+            if (count($parts) < 2) {
                 continue;
             }
+            $langIso639 = $parts[1];
 
             // If a region tag is found eg. "fr-ca"
             if (count($parts) === 3) {

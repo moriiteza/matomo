@@ -18,13 +18,13 @@ permissions:
 jobs:
   handle_npm_update:
     name: Handle NPM dependency updates for production packages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
       - name: Dependabot metadata
         id: dependabot-metadata
         uses: dependabot/fetch-metadata@v2
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: ${{ steps.dependabot-metadata.outputs.package-ecosystem == 'npm_and_yarn' }}
         with:
           ref: ${{ github.head_ref }}
@@ -61,5 +61,5 @@ jobs:
           fi
           git add ./node_modules
           git commit -m "Update npm dependencies"
-          git push --set-upstream origin ${{ github.head_ref }}
+          git push
         shell: bash

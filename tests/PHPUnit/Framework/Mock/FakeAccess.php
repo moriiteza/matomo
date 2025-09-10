@@ -42,7 +42,7 @@ class FakeAccess extends Access
 
     public function getTokenAuth()
     {
-        return false;
+        return null;
     }
 
     public function __construct($superUser = false, $idSitesAdmin = array(), $idSitesView = array(), $identity = 'superUserLogin', $idSitesWrite = array())
@@ -271,6 +271,15 @@ class FakeAccess extends Access
         }
 
         return array_merge(self::$idSitesView, self::$idSitesWrite, self::$idSitesAdmin);
+    }
+
+    public function getSitesIdWithAtLeastWriteAccess()
+    {
+        if (self::$superUser) {
+            return API::getInstance()->getAllSitesId();
+        }
+
+        return array_merge(self::$idSitesWrite, self::$idSitesAdmin);
     }
 
     public function getRawSitesWithSomeViewAccess($login)

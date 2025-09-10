@@ -334,7 +334,7 @@ class ArchiveProcessor
      * Numeric values are not inserted if they equal `0`.
      *
      * @param string $name The name of the numeric value, eg, `'Referrers_distinctKeywords'`.
-     * @param float $value The numeric value.
+     * @param float|null $value The numeric value.
      * @api
      */
     public function insertNumericRecord($name, $value)
@@ -405,7 +405,7 @@ class ArchiveProcessor
             $blobTable = DataTable::fromSerializedArray($archiveDataRow['value']);
 
             // see https://github.com/piwik/piwik/issues/4377
-            $blobTable->filter(function ($table) use ($columnsToRenameAfterAggregation, $name) {
+            $blobTable->filter(function ($table) use ($columnsToRenameAfterAggregation) {
                 if ($this->areColumnsNotAlreadyRenamed($table)) {
                     /**
                      * This makes archiving and range dates a lot faster. Imagine we archive a week, then we will
@@ -703,6 +703,10 @@ class ArchiveProcessor
         $operationForColumn = $this->getOperationForColumns($columns, $operationsToApply);
 
         $dataTable = $this->getArchive()->getDataTableFromNumeric($columns);
+
+        if ($dataTable->wasBuiltWithoutArchives()) {
+            return (new Row())->getColumns();
+        }
 
         $results = $this->getAggregatedDataTableMap($dataTable, $operationForColumn);
         if ($results->getRowsCount() > 1) {

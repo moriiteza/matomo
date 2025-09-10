@@ -96,6 +96,8 @@
 		<referrerSearchEngineIcon />
 		<referrerSocialNetworkUrl />
 		<referrerSocialNetworkIcon />
+		<referrerAIAssistantUrl />
+		<referrerAIAssistantIcon />
 		<languageCode>fr</languageCode>
 		<language>French</language>
 		<deviceType>Desktop</deviceType>
@@ -124,8 +126,8 @@
 		<regionCode>WAR</regionCode>
 		<city>Stratford-upon-Avon</city>
 		<location>Stratford-upon-Avon, Warwickshire, United Kingdom</location>
-		<latitude>123.456000</latitude>
-		<longitude>21.321000</longitude>
+		<latitude>123.460000</latitude>
+		<longitude>21.320000</longitude>
 		<visitLocalTime>12:34:06</visitLocalTime>
 		<visitLocalHour>12</visitLocalHour>
 		<daysSinceLastVisit>0</daysSinceLastVisit>
@@ -253,6 +255,8 @@
 		<referrerSearchEngineIcon />
 		<referrerSocialNetworkUrl />
 		<referrerSocialNetworkIcon />
+		<referrerAIAssistantUrl />
+		<referrerAIAssistantIcon />
 		<languageCode>fr</languageCode>
 		<language>French</language>
 		<deviceType>Smartphone</deviceType>
@@ -281,8 +285,8 @@
 		<regionCode>BFC</regionCode>
 		<city>Besançon</city>
 		<location>Besançon, Bourgogne-Franche-Comté, France</location>
-		<latitude>47.249000</latitude>
-		<longitude>6.018000</longitude>
+		<latitude>47.250000</latitude>
+		<longitude>6.020000</longitude>
 		<visitLocalTime>12:34:06</visitLocalTime>
 		<visitLocalHour>12</visitLocalHour>
 		<daysSinceLastVisit>0</daysSinceLastVisit>
@@ -410,6 +414,8 @@
 		<referrerSearchEngineIcon />
 		<referrerSocialNetworkUrl />
 		<referrerSocialNetworkIcon />
+		<referrerAIAssistantUrl />
+		<referrerAIAssistantIcon />
 		<languageCode>fr</languageCode>
 		<language>French</language>
 		<deviceType>Desktop</deviceType>
@@ -439,7 +445,7 @@
 		<city>Vancouver</city>
 		<location>Vancouver, British Columbia, Canada</location>
 		<latitude>49.250000</latitude>
-		<longitude>-123.133000</longitude>
+		<longitude>-123.130000</longitude>
 		<visitLocalTime>12:34:06</visitLocalTime>
 		<visitLocalHour>12</visitLocalHour>
 		<daysSinceLastVisit>0</daysSinceLastVisit>
@@ -567,6 +573,8 @@
 		<referrerSearchEngineIcon />
 		<referrerSocialNetworkUrl />
 		<referrerSocialNetworkIcon />
+		<referrerAIAssistantUrl />
+		<referrerAIAssistantIcon />
 		<languageCode>fr</languageCode>
 		<language>French</language>
 		<deviceType>Phablet</deviceType>
@@ -805,6 +813,8 @@
 		<referrerSearchEngineIcon />
 		<referrerSocialNetworkUrl />
 		<referrerSocialNetworkIcon />
+		<referrerAIAssistantUrl />
+		<referrerAIAssistantIcon />
 		<languageCode>fr</languageCode>
 		<language>French</language>
 		<deviceType>Desktop</deviceType>
@@ -833,8 +843,8 @@
 		<regionCode>WAR</regionCode>
 		<city>Stratford-upon-Avon</city>
 		<location>Stratford-upon-Avon, Warwickshire, United Kingdom</location>
-		<latitude>123.456000</latitude>
-		<longitude>21.321000</longitude>
+		<latitude>123.460000</latitude>
+		<longitude>21.320000</longitude>
 		<visitLocalTime>12:34:06</visitLocalTime>
 		<visitLocalHour>12</visitLocalHour>
 		<daysSinceLastVisit>0</daysSinceLastVisit>
@@ -1043,6 +1053,8 @@
 		<referrerSearchEngineIcon />
 		<referrerSocialNetworkUrl />
 		<referrerSocialNetworkIcon />
+		<referrerAIAssistantUrl />
+		<referrerAIAssistantIcon />
 		<languageCode>fr</languageCode>
 		<language>French</language>
 		<deviceType>Smartphone</deviceType>
@@ -1071,8 +1083,8 @@
 		<regionCode>BFC</regionCode>
 		<city>Besançon</city>
 		<location>Besançon, Bourgogne-Franche-Comté, France</location>
-		<latitude>47.249000</latitude>
-		<longitude>6.018000</longitude>
+		<latitude>47.250000</latitude>
+		<longitude>6.020000</longitude>
 		<visitLocalTime>12:34:06</visitLocalTime>
 		<visitLocalHour>12</visitLocalHour>
 		<daysSinceLastVisit>0</daysSinceLastVisit>
@@ -1281,6 +1293,8 @@
 		<referrerSearchEngineIcon />
 		<referrerSocialNetworkUrl />
 		<referrerSocialNetworkIcon />
+		<referrerAIAssistantUrl />
+		<referrerAIAssistantIcon />
 		<languageCode />
 		<language>Unknown</language>
 		<deviceType>Desktop</deviceType>
@@ -1310,7 +1324,7 @@
 		<city>Vancouver</city>
 		<location>Vancouver, British Columbia, Canada</location>
 		<latitude>49.250000</latitude>
-		<longitude>-123.133000</longitude>
+		<longitude>-123.130000</longitude>
 		<visitLocalTime>12:34:06</visitLocalTime>
 		<visitLocalHour>12</visitLocalHour>
 		<daysSinceLastVisit>0</daysSinceLastVisit>

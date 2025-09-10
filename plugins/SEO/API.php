@@ -23,8 +23,7 @@ use Piwik\Url;
 require_once PIWIK_INCLUDE_PATH . '/plugins/Referrers/functions.php';
 
 /**
- * The SEO API lets you access a list of SEO metrics for the specified URL: Google PageRank, Google/Bing indexed pages
- * and age of the Domain name.
+ * The SEO API lets you access a list of SEO metrics for the specified URL: Bing indexed pages and age of the Domain name.
  *
  * @method static API getInstance()
  */
@@ -41,7 +40,7 @@ class API extends \Piwik\Plugin\API
         Piwik::checkUserHasSomeViewAccess();
 
         $metricProvider = new ProviderCache(new Aggregator());
-        $domain = Url::getHostFromUrl($url);
+        $domain = Url::getHostFromUrl($url) ?: '';
         $metrics = $metricProvider->getMetrics($domain);
 
         $dataTable = $this->toDataTable($metrics);

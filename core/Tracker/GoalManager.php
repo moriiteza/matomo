@@ -437,7 +437,6 @@ class GoalManager
      * @param array $goal
      * @param array $items
      * @throws Exception
-     * @return int Number of items in the cart
      */
     protected function recordEcommerceItems($goal, $items)
     {
@@ -779,7 +778,7 @@ class GoalManager
          *
          * This event can be used to modify conversion information or to add new information to be persisted.
          *
-         * This event is deprecated, use [Dimensions](http://developer.piwik.org/guides/dimensions) instead.
+         * This event is deprecated, use [Dimensions](https://developer.matomo.org/guides/dimensions) instead.
          *
          * @param array $conversion The conversion entity. Read [this](/guides/persistence-and-the-mysql-backend#conversions)
          *                          to see what it contains.
@@ -813,10 +812,15 @@ class GoalManager
         $wasInserted = $this->getModel()->createConversion($conversion);
         if (
             !$wasInserted
-            && !empty($idorder)
         ) {
-            $idSite = $request->getIdSite();
-            throw new InvalidRequestParameterException("Invalid non-unique idsite/idorder combination ($idSite, $idorder), conversion was not inserted.");
+            if (!empty($idorder)) {
+                $idSite = $request->getIdSite();
+                throw new InvalidRequestParameterException("Invalid non-unique idsite/idorder combination ($idSite, $idorder), conversion was not inserted.");
+            } elseif ($conversion['buster'] > 0) {
+                // Note: The buster is set to 0 for goals that can only be triggered once per visit.
+                // It's expected behaviour that creating additional conversion fail, so we don't log failures in that case.
+                StaticContainer::get(LoggerInterface::class)->warning("Failed to insert goal due to duplicate idvisit/idgoal/buster combination ({$conversion['idvisit']}, {$conversion['idgoal']}, {$conversion['buster']})");
+            }
         }
 
         return $wasInserted;

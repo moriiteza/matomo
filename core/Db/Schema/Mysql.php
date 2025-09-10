@@ -33,6 +33,11 @@ class Mysql implements SchemaInterface
 
     private $tablesInstalled = null;
 
+    public function getDatabaseType(): string
+    {
+        return 'MySQL';
+    }
+
     /**
      * Get the SQL to create Piwik tables
      *
@@ -59,6 +64,8 @@ class Mysql implements SchemaInterface
                           invite_expired_at TIMESTAMP NULL,
                           invite_accept_at TIMESTAMP NULL,
                           ts_changes_shown TIMESTAMP NULL,
+                          ts_last_seen TIMESTAMP NULL,
+                          ts_inactivity_notified TIMESTAMP NULL,
                             PRIMARY KEY(login),
                             UNIQUE INDEX `uniq_email` (`email`)
                           ) $tableOptions
@@ -74,6 +81,8 @@ class Mysql implements SchemaInterface
                           date_created DATETIME NOT NULL,
                           date_expired DATETIME NULL,
                           secure_only TINYINT(2) unsigned NOT NULL DEFAULT '0',
+                          ts_rotation_notified DATETIME NULL,
+                          ts_expiration_warning_notified DATETIME NULL,
                             PRIMARY KEY(idusertokenauth),
                             UNIQUE KEY uniq_password(password)
                           ) $tableOptions
@@ -332,6 +341,8 @@ class Mysql implements SchemaInterface
                                             ts_started DATETIME NULL,
                                             status TINYINT(1) UNSIGNED DEFAULT 0,
                                             `report` VARCHAR(255) NULL,
+                                            processing_host VARCHAR(100) NULL DEFAULT NULL,
+                                            process_id VARCHAR(15) NULL DEFAULT NULL,
                                             PRIMARY KEY(idinvalidation),
                                             INDEX index_idsite_dates_period_name(idsite, date1, period)
                                         ) $tableOptions
@@ -650,18 +661,10 @@ class Mysql implements SchemaInterface
             return $sql;
         }
 
-        $sql = trim($sql);
-        $pos = stripos($sql, 'SELECT');
-        $isMaxExecutionTimeoutAlreadyPresent = (stripos($sql, 'MAX_EXECUTION_TIME(') !== false);
-        if ($pos !== false && !$isMaxExecutionTimeoutAlreadyPresent) {
-            $timeInMs = $limit * 1000;
-            $timeInMs = (int) $timeInMs;
-            $maxExecutionTimeHint = ' /*+ MAX_EXECUTION_TIME(' . $timeInMs . ') */ ';
+        $timeInMs = $limit * 1000;
+        $timeInMs = (int) $timeInMs;
 
-            $sql = substr_replace($sql, 'SELECT ' . $maxExecutionTimeHint, $pos, strlen('SELECT'));
-        }
-
-        return $sql;
+        return DbHelper::addOptimizerHintToQuery($sql, 'MAX_EXECUTION_TIME(' . $timeInMs . ')');
     }
 
     public function supportsComplexColumnUpdates(): bool
@@ -775,6 +778,11 @@ class Mysql implements SchemaInterface
         return version_compare($semanticVersion, '10.1.1', '>=');
     }
 
+    public function supportsRankingRollupWithoutExtraSorting(): bool
+    {
+        return true;
+    }
+
     public function supportsSortingInSubquery(): bool
     {
         return true;
@@ -783,6 +791,45 @@ class Mysql implements SchemaInterface
     public function getSupportedReadIsolationTransactionLevel(): string
     {
         return 'READ UNCOMMITTED';
+    }
+
+    public function hasReachedEOL(): bool
+    {
+        $currentVersion = $this->getVersion();
+
+        // Aurora is managed by AWS and is updated automatically if EOL, therefor we can ignore that here
+        $auroraQuery = $this->getDb()->query('SHOW VARIABLES LIKE "aurora%"');
+
+        if ($this->getDb()->rowCount($auroraQuery) > 0) {
+            return false;
+        }
+
+        // End of security update for certain MySQL versions as of https://en.wikipedia.org/wiki/MySQL#Release_history
+
+        // Support for 8.0 LTS ends in April 2026
+        if (
+            version_compare($currentVersion, '8.0', '>=') &&
+            version_compare($currentVersion, '8.1', '<') &&
+            Date::today()->isEarlier(Date::factory('2026-05-01'))
+        ) {
+            return false;
+        }
+
+        // Support for 8.4 LTS ends in April 2032
+        if (
+            version_compare($currentVersion, '8.4', '>=') &&
+            version_compare($currentVersion, '8.5', '<') &&
+            Date::today()->isEarlier(Date::factory('2032-05-01'))
+        ) {
+            return false;
+        }
+
+        // Support for all other versions prior to 9.3 (not covered by conditions above) already ended
+        if (version_compare($currentVersion, '9.3', '<')) {
+            return true;
+        }
+
+        return false;
     }
 
     protected function getDatabaseCreateOptions(): string
@@ -824,7 +871,7 @@ class Mysql implements SchemaInterface
         return $this->getDbSettings()->getTablePrefix();
     }
 
-    protected function getVersion(): string
+    public function getVersion(): string
     {
         return Db::fetchOne("SELECT VERSION()");
     }

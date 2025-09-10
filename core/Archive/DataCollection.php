@@ -103,6 +103,8 @@ class DataCollection
      */
     private $segment;
 
+    private $isBuiltWithoutArchives = true;
+
     /**
      * Constructor.
      *
@@ -130,6 +132,16 @@ class DataCollection
 
         $this->segment = $segment;
         $this->defaultRow = $defaultRow;
+    }
+
+    public function setAsBuiltWithoutArchives(bool $flag): void
+    {
+        $this->isBuiltWithoutArchives = $flag;
+    }
+
+    public function wasBuiltWithoutArchives(): bool
+    {
+        return $this->isBuiltWithoutArchives;
     }
 
     /**
@@ -354,6 +366,7 @@ class DataCollection
 
         if (!empty($metadataNamesToIndexBy)) {
             $metadataName = array_shift($metadataNamesToIndexBy);
+            $indexKeyValues = [];
 
             if ($metadataName == DataTableFactory::TABLE_METADATA_SITE_INDEX) {
                 $indexKeyValues = array_values($this->sitesId);

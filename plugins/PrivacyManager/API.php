@@ -9,10 +9,15 @@
 
 namespace Piwik\Plugins\PrivacyManager;
 
+use Exception;
 use Piwik\API\Request;
 use Piwik\Container\StaticContainer;
 use Piwik\Piwik;
 use Piwik\Config as PiwikConfig;
+use Piwik\Plugin\Manager;
+use Piwik\Plugins\FeatureFlags\FeatureFlagManager;
+use Piwik\Plugins\Live\Live;
+use Piwik\Plugins\PrivacyManager\FeatureFlags\PrivacyCompliance;
 use Piwik\Plugins\PrivacyManager\Model\DataSubjects;
 use Piwik\Plugins\PrivacyManager\Dao\LogDataAnonymizer;
 use Piwik\Plugins\PrivacyManager\Model\LogDataAnonymizations;
@@ -47,16 +52,24 @@ class API extends \Piwik\Plugin\API
      */
     private $referrerAnonymizer;
 
+    /**
+     * @var FeatureFlagManager
+     */
+    private $featureFlagManager;
+
+
     public function __construct(
         DataSubjects $gdpr,
         LogDataAnonymizations $logDataAnonymizations,
         LogDataAnonymizer $logDataAnonymizer,
-        ReferrerAnonymizer $referrerAnonymizer
+        ReferrerAnonymizer $referrerAnonymizer,
+        FeatureFlagManager $featureFlagManager
     ) {
         $this->gdpr = $gdpr;
         $this->logDataAnonymizations = $logDataAnonymizations;
         $this->logDataAnonymizer = $logDataAnonymizer;
         $this->referrerAnonymizer = $referrerAnonymizer;
+        $this->featureFlagManager = $featureFlagManager;
     }
 
     private function checkDataSubjectVisits($visits)
@@ -92,9 +105,33 @@ class API extends \Piwik\Plugin\API
     {
         Piwik::checkUserHasSomeAdminAccess();
 
+        if (!Manager::getInstance()->isPluginActivated('Live')) {
+            return [];
+        }
+
+        $siteIds = Site::getIdSitesFromIdSitesString($idSite);
+        $siteIdsWithVisitorLogsOrProfilesEnabled = [];
+
+        /*
+         * Only retrieve data from sites that have visitor logs or profiles enabled.
+         * Live::isVisitorProfileEnabled returns false if either logs or profiles
+         * are disabled.
+         */
+        foreach ($siteIds as $siteId) {
+            $isVisitorProfileEnabled = Live::isVisitorProfileEnabled($siteId);
+
+            if ($isVisitorProfileEnabled) {
+                $siteIdsWithVisitorLogsOrProfilesEnabled[] = $siteId;
+            }
+        }
+
+        if (empty($siteIdsWithVisitorLogsOrProfilesEnabled)) {
+            return [];
+        }
+
         $result = Request::processRequest('Live.getLastVisitsDetails', [
             'segment' => $segment,
-            'idSite' => $idSite,
+            'idSite' => $siteIdsWithVisitorLogsOrProfilesEnabled,
             'period' => 'range',
             'date' => '1998-01-01,today',
             'filter_limit' => 401,
@@ -140,6 +177,7 @@ class API extends \Piwik\Plugin\API
         $anonymizeUserId = false,
         $unsetVisitColumns = [],
         $unsetLinkVisitActionColumns = [],
+        #[\SensitiveParameter]
         $passwordConfirmation = ''
     ) {
         Piwik::checkUserHasSuperUserAccess();
@@ -199,7 +237,7 @@ class API extends \Piwik\Plugin\API
     /**
      * @internal
      */
-    public function setAnonymizeIpSettings($anonymizeIPEnable, $maskLength, $useAnonymizedIpForVisitEnrichment, $anonymizeUserId = false, $anonymizeOrderId = false, $anonymizeReferrer = '', $forceCookielessTracking = false)
+    public function setAnonymizeIpSettings($anonymizeIPEnable, $maskLength, $useAnonymizedIpForVisitEnrichment, $anonymizeUserId = false, $anonymizeOrderId = false, $anonymizeReferrer = '', $forceCookielessTracking = false, $randomizeConfigId = false)
     {
         Piwik::checkUserHasSuperUserAccess();
 
@@ -236,6 +274,10 @@ class API extends \Piwik\Plugin\API
 
             // update tracker files
             Piwik::postEvent('CustomJsTracker.updateTracker');
+        }
+
+        if (false !== $randomizeConfigId) {
+            $privacyConfig->randomizeConfigId = (bool) $randomizeConfigId;
         }
 
         return true;
@@ -312,6 +354,7 @@ class API extends \Piwik\Plugin\API
         $keepYear = 0,
         $keepRange = 0,
         $keepSegments = 0,
+        #[\SensitiveParameter]
         $passwordConfirmation = ''
     ) {
         Piwik::checkUserHasSuperUserAccess();
@@ -347,8 +390,10 @@ class API extends \Piwik\Plugin\API
      *
      * @internal
      */
-    public function executeDataPurge($passwordConfirmation)
-    {
+    public function executeDataPurge(
+        #[\SensitiveParameter]
+        $passwordConfirmation
+    ) {
         $this->confirmCurrentUserPassword($passwordConfirmation);
         Piwik::checkUserHasSuperUserAccess();
 
@@ -364,6 +409,70 @@ class API extends \Piwik\Plugin\API
             $reportsPurger = ReportsPurger::make($settings, PrivacyManager::getAllMetricsToKeep());
             $reportsPurger->purgeData(true);
         }
+    }
+
+    /**
+     * @internal
+     */
+    public function getComplianceStatus(string $idSite, string $complianceType): array
+    {
+        if (false === $this->featureFlagManager->isFeatureActive(PrivacyCompliance::class)) {
+            throw new Exception('Feature not available');
+        }
+
+        if ($complianceType !== 'cnil') {
+            throw new Exception('Invalid compliance type');
+        }
+
+        Piwik::checkUserHasSuperUserAccess();
+        return [
+            'complianceModeEnforced' => false,
+            'complianceRequirements' => [
+                [
+                    'name' => 'IP Anonymisation',
+                    'value' => 'compliant',
+                    'notes' => 'Set to at least 2 byte masking'
+                ],
+                [
+                    'name' => 'Data retention period',
+                    'value' => 'non_compliant',
+                    'notes' => 'Retention period is set to 365 days'
+                ],
+                [
+                    'name' => 'Visits Log and Visitors Profile',
+                    'value' => 'non_compliant',
+                    'notes' => 'Visits log is still enabled'
+                ],
+                [
+                    'name' => 'Ecommerce analytics',
+                    'value' => 'non_compliant',
+                    'notes' => 'Ecommerce analytics is enabled for this site'
+                ],
+                [
+                    'name' => 'Opt out',
+                    'value' => 'unknown',
+                    'notes' => 'Opt out must be manually set up and configured'
+                ],
+            ]
+        ];
+    }
+
+    /**
+     * @internal
+     */
+    public function setComplianceStatus(string $idSite, string $complianceType, bool $enforce): bool
+    {
+        if (!$this->featureFlagManager->isFeatureActive(PrivacyCompliance::class)) {
+            throw new Exception('Feature not available');
+        }
+
+        if ($complianceType !== 'cnil') {
+            throw new Exception('Invalid compliance type');
+        }
+
+        Piwik::checkUserHasSuperUserAccess();
+
+        return $enforce;
     }
 
     private function savePurgeDataSettings($settings)

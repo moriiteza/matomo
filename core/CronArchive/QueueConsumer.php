@@ -9,10 +9,8 @@
 
 namespace Piwik\CronArchive;
 
-use Piwik\ArchiveProcessor\Loader;
 use Piwik\ArchiveProcessor\Parameters;
 use Piwik\ArchiveProcessor\Rules;
-use Piwik\CliMulti\RequestParser;
 use Piwik\CronArchive;
 use Piwik\DataAccess\ArchiveSelector;
 use Piwik\DataAccess\Model;
@@ -79,11 +77,6 @@ class QueueConsumer
     private $periodIdsToLabels;
 
     /**
-     * @var RequestParser
-     */
-    private $cliMultiRequestParser;
-
-    /**
      * @var int
      */
     private $idSite;
@@ -118,7 +111,6 @@ class QueueConsumer
         Model $model,
         SegmentArchiving $segmentArchiving,
         CronArchive $cronArchive,
-        RequestParser $cliMultiRequestParser,
         ?ArchiveFilter $archiveFilter = null
     ) {
         $this->logger = $logger;
@@ -128,7 +120,6 @@ class QueueConsumer
         $this->model = $model;
         $this->segmentArchiving = $segmentArchiving;
         $this->cronArchive = $cronArchive;
-        $this->cliMultiRequestParser = $cliMultiRequestParser;
         $this->archiveFilter = $archiveFilter;
 
         // if we skip or can't process an idarchive, we want to ignore it the next time we look for an invalidated
@@ -255,7 +246,7 @@ class QueueConsumer
                 continue;
             }
 
-            list($isUsableExists, $archivedTime) = $this->usableArchiveExists($invalidatedArchive);
+            [$isUsableExists, $archivedTime] = $this->usableArchiveExists($invalidatedArchive);
             if ($isUsableExists) {
                 $now = Date::now()->getDatetime();
                 $this->addInvalidationToExclude($invalidatedArchive);
@@ -283,15 +274,8 @@ class QueueConsumer
                 continue;
             }
 
-            if ($this->canSkipArchiveBecauseNoPoint($invalidatedArchive)) {
-                $this->logger->debug("Found invalidated archive we can skip (no visits): $invalidationDesc");
-                $this->addInvalidationToExclude($invalidatedArchive);
-                $this->model->deleteInvalidations([$invalidatedArchive]);
-                continue;
-            }
-
             $reason = $this->shouldSkipArchiveBecauseLowerPeriodOrSegmentIsInProgress($invalidatedArchive);
-            if ($reason) {
+            if ($reason !== null) {
                 $this->logger->debug("Skipping invalidated archive, $reason: $invalidationDesc");
                 $invalidationsToExcludeInBatch[$invalidatedArchive['idinvalidation']] = true;
                 $this->addInvalidationToExclude($invalidatedArchive);
@@ -343,7 +327,7 @@ class QueueConsumer
         return $archivesToProcess;
     }
 
-    private function archiveArrayContainsArchive($archiveArray, $archive)
+    private function archiveArrayContainsArchive(array $archiveArray, array $archive): bool
     {
         foreach ($archiveArray as $entry) {
             if (
@@ -410,70 +394,55 @@ class QueueConsumer
         return false;
     }
 
-    // public for tests
-    public function canSkipArchiveBecauseNoPoint(array $invalidatedArchive)
+    public function shouldSkipArchiveBecauseLowerPeriodOrSegmentIsInProgress(array $archiveToProcess): ?string
     {
-        $site = new Site($invalidatedArchive['idsite']);
+        $inProgressArchives = $this->model->getInvalidationsInProgress(
+            [(int) $archiveToProcess['idsite']]
+        );
 
-        $periodLabel = $this->periodIdsToLabels[$invalidatedArchive['period']];
-        $dateStr = $periodLabel == 'range' ? ($invalidatedArchive['date1'] . ',' . $invalidatedArchive['date2']) : $invalidatedArchive['date1'];
-        $period = PeriodFactory::build($periodLabel, $dateStr);
-
-        $segment = new Segment($invalidatedArchive['segment'], [$invalidatedArchive['idsite']]);
-
-        $params = new Parameters($site, $period, $segment);
-        if (!empty($invalidatedArchive['plugin'])) {
-            $params->setRequestedPlugin($invalidatedArchive['plugin']);
-        }
-
-        $loader = new Loader($params);
-        return $loader->canSkipThisArchive(); // if no point in archiving, skip
-    }
-
-    public function shouldSkipArchiveBecauseLowerPeriodOrSegmentIsInProgress(array $archiveToProcess)
-    {
-        $inProgressArchives = $this->cliMultiRequestParser->getInProgressArchivingCommands();
+        $periods = array_flip(Piwik::$idPeriods);
 
         foreach ($inProgressArchives as $archiveBeingProcessed) {
-            if (
-                empty($archiveBeingProcessed['period'])
-                || empty($archiveBeingProcessed['date'])
-            ) {
-                continue;
-            }
-
-            if (
-                empty($archiveBeingProcessed['idSite'])
-                || $archiveBeingProcessed['idSite'] != $archiveToProcess['idsite']
-            ) {
-                continue; // different site
-            }
+            $this->findSegmentForArchive($archiveBeingProcessed);
 
             // we don't care about lower periods being concurrent if they are for different segments (that are not "all visits")
             if (
                 !empty($archiveBeingProcessed['segment'])
                 && !empty($archiveToProcess['segment'])
                 && $archiveBeingProcessed['segment'] != $archiveToProcess['segment']
-                && urldecode($archiveBeingProcessed['segment']) != $archiveToProcess['segment']
             ) {
                 continue;
             }
 
-            $archiveBeingProcessed['periodObj'] = PeriodFactory::build($archiveBeingProcessed['period'], $archiveBeingProcessed['date']);
+            $processedPeriodLabel = $periods[$archiveBeingProcessed['period']];
+            $processedPeriodDate = 'range' === $processedPeriodLabel
+                ? $archiveBeingProcessed['date1'] . ',' . $archiveBeingProcessed['date2']
+                : $archiveBeingProcessed['date1'];
 
-            if ($this->isArchiveOfLowerPeriod($archiveToProcess, $archiveBeingProcessed)) {
-                return "lower or same period in progress in another local climulti process (period = {$archiveBeingProcessed['period']}, date = {$archiveBeingProcessed['date']})";
+            $archiveBeingProcessed['periodObj'] = PeriodFactory::build(
+                $processedPeriodLabel,
+                $processedPeriodDate
+            );
+
+            if (!$this->isArchiveOfLowerPeriod($archiveToProcess, $archiveBeingProcessed)) {
+                continue;
             }
 
-            if ($this->isArchiveNonSegmentAndInProgressArchiveSegment($archiveToProcess, $archiveBeingProcessed)) {
-                return "segment archive in progress for same site/period ({$archiveBeingProcessed['segment']})";
+            if (empty($archiveToProcess['segment']) && !empty($archiveBeingProcessed['segment'])) {
+                return "segment archive in progress for same site with lower or same period ({$archiveBeingProcessed['segment']}, period = {$processedPeriodLabel}, date = {$processedPeriodDate})";
             }
+
+            if (!empty($archiveToProcess['segment']) && empty($archiveBeingProcessed['segment'])) {
+                return "all visits archive in progress for same site with lower or same period (period = {$processedPeriodLabel}, date = {$processedPeriodDate})";
+            }
+
+            return "lower or same period in progress (period = {$processedPeriodLabel}, date = {$processedPeriodDate})";
         }
 
-        return false;
+        return null;
     }
 
-    private function isArchiveOfLowerPeriod(array $archiveToProcess, $archiveBeingProcessed)
+    private function isArchiveOfLowerPeriod(array $archiveToProcess, array $archiveBeingProcessed): bool
     {
         /** @var Period $archiveToProcessPeriodObj */
         $archiveToProcessPeriodObj = $archiveToProcess['periodObj'];
@@ -490,12 +459,11 @@ class QueueConsumer
         return false;
     }
 
-    private function isArchiveNonSegmentAndInProgressArchiveSegment(array $archiveToProcess, array $archiveBeingProcessed)
+    private function isArchiveNonSegmentAndInProgressArchiveSegment(array $archiveToProcess, array $archiveBeingProcessed): bool
     {
         // archive is for different site/period
         if (
-            empty($archiveBeingProcessed['idSite'])
-            || $archiveToProcess['idsite'] != $archiveBeingProcessed['idSite']
+            $archiveToProcess['idsite'] != $archiveBeingProcessed['idsite']
             || $archiveToProcess['periodObj']->getId() != $archiveBeingProcessed['periodObj']->getId()
             || $archiveToProcess['periodObj']->getDateStart()->toString() != $archiveBeingProcessed['periodObj']->getDateStart()->toString()
         ) {
@@ -505,13 +473,13 @@ class QueueConsumer
         return empty($archiveToProcess['segment']) && !empty($archiveBeingProcessed['segment']);
     }
 
-    private function detectPluginForArchive(&$archive)
+    private function detectPluginForArchive(&$archive): void
     {
         $archive['plugin'] = $this->getPluginNameForArchiveIfAny($archive);
     }
 
     // static so it can be unit tested
-    public static function hasIntersectingPeriod(array $archivesToProcess, $invalidatedArchive)
+    public static function hasIntersectingPeriod(array $archivesToProcess, $invalidatedArchive): bool
     {
         if (empty($archivesToProcess)) {
             return false;
@@ -545,7 +513,7 @@ class QueueConsumer
         return false;
     }
 
-    private function findSegmentForArchive(&$archive)
+    private function findSegmentForArchive(&$archive): bool
     {
         $flag = explode('.', $archive['name'])[0];
         if ($flag == 'done') {
@@ -565,7 +533,7 @@ class QueueConsumer
         return $this->segmentArchiving->isAutoArchivingEnabledFor($storedSegment);
     }
 
-    private function getPluginNameForArchiveIfAny($archive)
+    private function getPluginNameForArchiveIfAny(array $archive): ?string
     {
         $name = $archive['name'];
         if (strpos($name, '.') === false) {
@@ -576,17 +544,17 @@ class QueueConsumer
         return $parts[1];
     }
 
-    public function ignoreIdInvalidation($idinvalidation)
+    public function ignoreIdInvalidation($idinvalidation): void
     {
         $this->invalidationsToExclude[$idinvalidation] = $idinvalidation;
     }
 
-    public function skipToNextSite()
+    public function skipToNextSite(): void
     {
         $this->idSite = null;
     }
 
-    private function addInvalidationToExclude(array $invalidatedArchive)
+    private function addInvalidationToExclude(array $invalidatedArchive): void
     {
         $id = $invalidatedArchive['idinvalidation'];
         if (empty($this->invalidationsToExclude[$id])) {
@@ -599,7 +567,7 @@ class QueueConsumer
         return $this->websiteIdArchiveList->getNextSiteId();
     }
 
-    private function getInvalidationDescription(array $invalidatedArchive)
+    private function getInvalidationDescription(array $invalidatedArchive): string
     {
         return sprintf(
             "[idinvalidation = %s, idsite = %s, period = %s(%s - %s), name = %s, segment = %s]",
@@ -614,13 +582,20 @@ class QueueConsumer
     }
 
     // public for test
-    public function usableArchiveExists(array $invalidatedArchive)
+    public function usableArchiveExists(array $invalidatedArchive): array
     {
         $site = new Site($invalidatedArchive['idsite']);
-
         $periodLabel = $this->periodIdsToLabels[$invalidatedArchive['period']];
         $dateStr = $periodLabel == 'range' ? ($invalidatedArchive['date1'] . ',' . $invalidatedArchive['date2']) : $invalidatedArchive['date1'];
         $period = PeriodFactory::build($periodLabel, $dateStr);
+
+        // if requested period does not include today, invalidation always needs to be processed
+        // so we always return no usable archive was found
+        $today = Date::factoryInTimezone('today', Site::getTimezoneFor($site->getId()));
+        $isArchiveIncludesToday = $period->isDateInPeriod($today);
+        if (!$isArchiveIncludesToday) {
+            return [false, null];
+        }
 
         $segment = new Segment($invalidatedArchive['segment'], [$invalidatedArchive['idsite']]);
 
@@ -628,15 +603,11 @@ class QueueConsumer
         if (!empty($invalidatedArchive['plugin'])) {
             $params->setRequestedPlugin($invalidatedArchive['plugin']);
         }
-
-        // if latest archive includes today and is usable (DONE_OK or DONE_INVALIDATED and recent enough), skip
-        $today = Date::factoryInTimezone('today', Site::getTimezoneFor($site->getId()));
-        $isArchiveIncludesToday = $period->isDateInPeriod($today);
-        if (!$isArchiveIncludesToday) {
-            return [false, null];
+        if (!empty($invalidatedArchive['report'])) {
+            $params->setArchiveOnlyReport($invalidatedArchive['report']);
         }
 
-        // if valid archive already exists, do not re-archive
+        // For archives including today we look if there are existing usable archives (DONE_OK or DONE_INVALIDATED) that are recent enough
         $minDateTimeProcessedUTC = Date::now()->subSeconds(Rules::getPeriodArchiveTimeToLiveDefault($periodLabel));
         $archiveIdAndVisits = ArchiveSelector::getArchiveIdAndVisits($params, $minDateTimeProcessedUTC, $includeInvalidated = false);
         $idArchives = $archiveIdAndVisits['idArchives'];

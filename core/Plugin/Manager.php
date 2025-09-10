@@ -696,9 +696,8 @@ class Manager
      * Install loaded plugins
      *
      * @throws
-     * @return array Error messages of plugin install fails
      */
-    public function installLoadedPlugins()
+    public function installLoadedPlugins(): void
     {
         Log::debug("Loaded plugins: " . implode(", ", array_keys($this->getLoadedPlugins())));
 
@@ -776,14 +775,14 @@ class Manager
      *
      * If no theme is enabled, the **Morpheus** plugin is returned (this is the base and default theme).
      *
-     * @return Plugin
+     * @return Plugin|null
      * @api
      */
-    public function getThemeEnabled()
+    public function getThemeEnabled(): ?Plugin
     {
         $plugins = $this->getLoadedPlugins();
 
-        $theme = false;
+        $theme = null;
         foreach ($plugins as $plugin) {
             /* @var $plugin Plugin */
             if (

@@ -27,7 +27,7 @@ class Aggregator implements MetricsProvider
         $this->providers = $this->getProviders();
     }
 
-    public function getMetrics($domain)
+    public function getMetrics(string $domain)
     {
         $metrics = [];
 
@@ -46,7 +46,6 @@ class Aggregator implements MetricsProvider
         $container = StaticContainer::getContainer();
 
         $providers = [
-            $container->get('Piwik\Plugins\SEO\Metric\Google'),
             $container->get('Piwik\Plugins\SEO\Metric\Bing'),
             $container->get('Piwik\Plugins\SEO\Metric\DomainAge'),
         ];

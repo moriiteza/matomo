@@ -258,10 +258,10 @@ describe("UsersManager", function () {
         await page.type('#user_login', '000newuser');
         await page.type('#user_email', 'theuser@email.com');
 
-        await page.click('.userEditForm .siteSelector a.title');
-        await (await page.jQuery('.userEditForm .siteSelector .custom_select_ul_list a:eq(1):visible', { waitFor: true })).click();
+        await page.click('.userInviteForm .siteSelector a.title');
+        await (await page.jQuery('.userInviteForm .siteSelector .custom_select_ul_list a:eq(1):visible', { waitFor: true })).click();
 
-        await page.evaluate(() => $('.userEditForm .matomo-save-button input').click());
+        await page.evaluate(() => $('.userInviteForm .matomo-save-button input').click());
         const modal = await page.waitForSelector('.modal.open', { visible: true });
         await page.focus('.modal.open #currentUserPassword');
         await page.waitForTimeout(250);
@@ -275,13 +275,14 @@ describe("UsersManager", function () {
         await page.type('.modal.open #currentUserPassword', superUserPassword);
         await (await page.jQuery('.confirm-password-modal .modal-close:not(.modal-no):visible')).click();
         await page.waitForNetworkIdle();
+        await page.waitForFunction(() => $('.modal.open').length === 0);
 
         expect(await page.screenshotSelector('.usersManager')).to.matchImage('user_created');
     });
 
     it('should warn about invitation resend when changing email', async function () {
         await page.evaluate(() => $('.userEditForm #user_email').val('theuser2@email.com'));
-        await page.evaluate(() => $('.userEditForm .matomo-save-button input').click());
+        await page.evaluate(() => $('.userEditForm .matomo-save-button input:visible').click());
         await page.waitForTimeout(100);
         await page.waitForFunction(() => $('.modal.open:visible').length)
         const modal = await page.jQuery('.modal.open:visible');
@@ -542,7 +543,7 @@ describe("UsersManager", function () {
 
     it('should give the user superuser access when the superuser modal is confirmed', async function () {
         await page.click('.userEditForm #superuser_access+span');
-        await page.waitForTimeout(500);
+        await page.waitForSelector('.modal.open #currentUserPassword', {visible: true});
 
         await page.type('.modal.open #currentUserPassword', superUserPassword);
         await (await page.jQuery('.modal.open .modal-close:not(.modal-no):visible')).click();
@@ -565,6 +566,43 @@ describe("UsersManager", function () {
 
         expect(await page.screenshotSelector('.usersManager')).to.matchImage('manage_users_back');
     });
+
+  // Superuser test for editing their own user
+  describe('UsersManager_000newuser_view', function () {
+    before(async function () {
+      testEnvironment.fakeIdentity = '000newuser';
+      await testEnvironment.save();
+    });
+
+    after(async () => {
+      delete testEnvironment.fakeIdentity;
+      testEnvironment.save();
+    });
+
+    it('should disable the superuser access checkbox when editing own user', async function () {
+      testEnvironment.fakeIdentity = '000newuser';
+      await testEnvironment.save();
+
+      await page.reload();
+      await page.waitForNetworkIdle();
+      await (await page.jQuery('.usersManager table td:contains("000newuser") ~ td.actions-cell .icon-edit', { waitFor: true })).click();
+      await page.waitForSelector('.userEditForm .menuSuperuser');
+      await page.click('.userEditForm .menuSuperuser a');
+
+      await (await page.jQuery('#superuser_access')).hover();
+      await page.waitForSelector('.ui-tooltip');
+
+      // Use DOM comparison to check tooltip text since image comparison is overkill
+      const toolTipHtml = await page.evaluate(() => $('.ui-tooltip').html());
+      expect(toolTipHtml).to.equal('<div class="ui-tooltip-content">You cannot revoke your own superuser access.</div>');
+
+      // Move mouse away from input for the screenshot
+      await page.mouse.move(0, 0);
+      await page.waitForTimeout(100);
+
+      expect(await page.screenshotSelector('.usersManager')).to.matchImage('superuser_tab_current_user');
+    });
+  });
 
     it('should display the superuser access tab when the superuser tab is clicked with ActivityLog', async function () {
       testEnvironment.pluginsToLoad = ['ActivityLog'];
@@ -719,7 +757,7 @@ describe("UsersManager", function () {
         });
 
         it('should not allow editing basic info for admin users', async function () {
-            await page.click('.userEditForm .entityCancelLink');
+            await page.click('.userInviteForm .entityCancelLink');
             await (await page.jQuery('button.edituser:eq(1)')).click();
             await page.waitForNetworkIdle();
 

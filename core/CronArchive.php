@@ -19,11 +19,11 @@ use Piwik\CronArchive\ArchiveFilter;
 use Piwik\CronArchive\FixedSiteIds;
 use Piwik\CronArchive\Performance\Logger;
 use Piwik\Archive\ArchiveInvalidator;
-use Piwik\CliMulti\RequestParser;
 use Piwik\CronArchive\QueueConsumer;
 use Piwik\CronArchive\SharedSiteIds;
 use Piwik\CronArchive\StopArchiverException;
 use Piwik\DataAccess\ArchiveSelector;
+use Piwik\DataAccess\ArchiveWriter;
 use Piwik\DataAccess\Model;
 use Piwik\Exception\UnexpectedWebsiteFoundException;
 use Piwik\Metrics\Formatter;
@@ -36,6 +36,7 @@ use Piwik\Plugins\SitesManager\API as APISitesManager;
 use Piwik\Plugins\UsersManager\API as APIUsersManager;
 use Piwik\Plugins\UsersManager\UserPreferences;
 use Piwik\Log\LoggerInterface;
+use Piwik\Scheduler\Scheduler;
 
 /**
  * ./console core:archive runs as a cron and is a useful tool for general maintenance,
@@ -79,7 +80,6 @@ class CronArchive
      */
     private $websiteIdArchiveList;
     private $requests = 0;
-    private $archiveAndRespectTTL = true;
     public $shouldArchiveAllSites = false;
 
     private $idSitesNotUsingTracker = [];
@@ -137,12 +137,11 @@ class CronArchive
     public $disableScheduledTasks = false;
 
     /**
-     * Forces CronArchive to invalidate data for the last [$dateLastForced] years when it notices a segment that
-     * was recently created or updated. By default this is 7.
+     * If set to true, yesterday and today won't be invalidated.
      *
-     * @var int|false
+     * @var bool
      */
-    public $dateLastForced = SegmentArchiving::DEFAULT_BEGINNING_OF_TIME_LAST_N_YEARS;
+    public $skipInvalidatingRecentDates = false;
 
     /**
      * The number of concurrent requests to issue per website. Defaults to {@link MAX_CONCURRENT_API_REQUESTS}.
@@ -176,6 +175,15 @@ class CronArchive
      * @var int|null
      */
     public $maxArchivesToProcess = null;
+
+    /**
+     * Time in seconds how long an archiving job is allowed to start new archiving processes.
+     * When time limit is reached, the archiving job will wrap after current processes are finished up instead of
+     * continuing with the next invalidation requests.
+     *
+     * @var int
+     */
+    public $stopProcessingAfter = -1;
 
     private $archivingStartingTime;
 
@@ -221,14 +229,31 @@ class CronArchive
     private $archiveFilter;
 
     /**
-     * @var RequestParser
-     */
-    private $cliMultiRequestParser;
-
-    /**
      * @var bool|mixed
      */
     private $supportsAsync;
+
+    /**
+     * @var null|int
+     */
+    private $signal = null;
+
+    /**
+     * @var CliMulti|null
+     */
+    private $cliMultiHandler = null;
+
+    /**
+     * @var Scheduler|null
+     */
+    private $scheduler = null;
+
+    private $step = 0;
+
+    private const STEP_INIT = 1;
+    private const STEP_ARCHIVING = 2;
+    private const STEP_SCHEDULED_TASKS = 3;
+    private const STEP_FINISH = 4;
 
     /**
      * Constructor.
@@ -249,7 +274,6 @@ class CronArchive
         $this->periodIdsToLabels = array_flip(Piwik::$idPeriods);
 
         $this->supportsAsync = $this->makeCliMulti()->supportsAsync();
-        $this->cliMultiRequestParser = new RequestParser($this->supportsAsync);
 
         $this->archiveFilter = new ArchiveFilter();
     }
@@ -270,16 +294,53 @@ class CronArchive
         }
 
         $self = $this;
+        /*
+         * Archiving tasks need to be performed as super, to ensure we pass any permission check.
+         */
         Access::doAsSuperUser(function () use ($self) {
             try {
+                $this->step = self::STEP_INIT;
                 $self->init();
+
+                $this->step = self::STEP_ARCHIVING;
                 $self->run();
+
+                $this->step = self::STEP_SCHEDULED_TASKS;
                 $self->runScheduledTasks();
+
+                $this->step = self::STEP_FINISH;
                 $self->end();
             } catch (StopArchiverException $e) {
                 $this->logger->info("Archiving stopped by stop archiver exception" . $e->getMessage());
             }
         });
+    }
+
+    public function handleSignal(int $signal): void
+    {
+        $this->logger->info('Received system signal to stop archiving: ' . $signal);
+
+        $this->signal = $signal;
+
+        // initialisation and finishing can be stopped directly.
+        if (in_array($this->step, [self::STEP_INIT, self::STEP_FINISH])) {
+            $this->logger->info('Archiving stopped');
+            exit;
+        }
+
+        // stop archiving
+        if (!empty($this->cliMultiHandler)) {
+            $this->logger->info('Trying to stop running cli processes...');
+            $this->cliMultiHandler->handleSignal($signal);
+        }
+
+        // stop scheduled tasks
+        if (!empty($this->scheduler)) {
+            $this->logger->info('Trying to stop running tasks...');
+            $this->scheduler->handleSignal($signal);
+        }
+
+        // Note: finishing the archiving process will be handled in `run()`
     }
 
     public function init()
@@ -379,13 +440,17 @@ class CronArchive
             $this->model,
             $this->segmentArchiving,
             $this,
-            $this->cliMultiRequestParser,
             $this->archiveFilter
         );
 
         $queueConsumer->setMaxSitesToProcess($this->maxSitesToProcess);
 
         while (true) {
+            if (null !== $this->signal) {
+                $this->logger->info("Archiving will stop now because signal to abort received");
+                return;
+            }
+
             if ($this->isMaintenanceModeEnabled()) {
                 $this->logger->info("Archiving will stop now because maintenance mode is enabled");
                 return;
@@ -418,6 +483,11 @@ class CronArchive
                 $this->logger->info("Maximum number of archives to process per execution has been reached.");
                 break;
             }
+
+            if ($this->stopProcessingAfter > 0 && $this->stopProcessingAfter < $timer->getTime()) {
+                $this->logger->info("Maximum time limit per execution has been reached.");
+                break;
+            }
         }
 
         $this->disconnectDb();
@@ -440,7 +510,7 @@ class CronArchive
         $urls = [];
         $archivesBeingQueried = [];
         foreach ($archives as $index => $archive) {
-            list($url, $segment, $plugin) = $this->generateUrlToArchiveFromArchiveInfo($archive);
+            [$url, $segment, $plugin] = $this->generateUrlToArchiveFromArchiveInfo($archive);
             if (empty($url)) {
                 // can happen if, for example, a segment was deleted after an archive was invalidated
                 // in this case, we can just delete the archive entirely.
@@ -474,6 +544,10 @@ class CronArchive
                 $params->onlyArchiveRequestedPlugin();
             }
 
+            if (!empty($archive['report'])) {
+                $params->setArchiveOnlyReport($archive['report']);
+            }
+
             $loader = new Loader($params);
             if ($loader->canSkipThisArchive()) {
                 $this->logger->info("Found no visits for site ID = {idSite}, {period} ({date1},{date2}), site is using the tracker so skipping archiving...", [
@@ -482,6 +556,11 @@ class CronArchive
                     'date1' => $archive['date1'],
                     'date2' => $archive['date2'],
                 ]);
+
+                // create an empty archive
+                $archiveWriter = new ArchiveWriter($params);
+                $archiveWriter->initNewArchive();
+                $archiveWriter->finalizeArchive();
 
                 // site is using the tracker, but there are no visits for this period, so just delete the archive and move on
                 $this->deleteInvalidatedArchives($archive);
@@ -498,18 +577,29 @@ class CronArchive
             return 0; // all URLs had no visits and were using the tracker
         }
 
-        $cliMulti = $this->makeCliMulti();
-        $cliMulti->timeRequests();
+        $this->cliMultiHandler = $this->makeCliMulti();
+        $this->cliMultiHandler->timeRequests();
 
-        $responses = $cliMulti->request($urls);
+        $responses = $this->cliMultiHandler->request($urls);
 
         $this->disconnectDb();
 
-        $timers = $cliMulti->getTimers();
+        $timers = $this->cliMultiHandler->getTimers();
         $successCount = 0;
 
         foreach ($urls as $index => $url) {
             $content = array_key_exists($index, $responses) ? $responses[$index] : null;
+
+            if (null !== $this->signal && empty($content)) {
+                // processes killed by system
+                $idinvalidation = $archivesBeingQueried[$index]['idinvalidation'];
+
+                $this->model->releaseInProgressInvalidations([$idinvalidation]);
+                $this->logger->info('Archiving process killed, reset invalidation with id ' . $idinvalidation);
+
+                continue;
+            }
+
             $checkInvalid = $this->checkResponse($content, $url);
 
             $stats = json_decode($content, $assoc = true);
@@ -517,7 +607,7 @@ class CronArchive
                 $this->logger->info(var_export($content, true));
 
                 $idinvalidation = $archivesBeingQueried[$index]['idinvalidation'];
-                $this->model->releaseInProgressInvalidation($idinvalidation);
+                $this->model->releaseInProgressInvalidations([$idinvalidation]);
 
                 $queueConsumer->ignoreIdInvalidation($idinvalidation);
 
@@ -527,7 +617,6 @@ class CronArchive
 
             $visitsForPeriod = $this->getVisitsFromApiResponse($stats);
 
-
             $this->logArchiveJobFinished(
                 $url,
                 $timers[$index],
@@ -536,7 +625,6 @@ class CronArchive
                 $archivesBeingQueried[$index]['report'],
                 !$checkInvalid
             );
-
 
             $this->deleteInvalidatedArchives($archivesBeingQueried[$index]);
 
@@ -618,6 +706,11 @@ class CronArchive
      */
     public function end()
     {
+        if (null !== $this->signal) {
+            // Skip if abort signal has been received
+            return;
+        }
+
         /**
          * This event is triggered after archiving.
          *
@@ -650,6 +743,11 @@ class CronArchive
 
     public function runScheduledTasks()
     {
+        if (null !== $this->signal) {
+            // Skip running scheduled task if abort signal has been received
+            return;
+        }
+
         $this->logSection("SCHEDULED TASKS");
 
         if ($this->disableScheduledTasks) {
@@ -673,7 +771,8 @@ class CronArchive
         //         enable/disable the task
         Rules::$disablePureOutdatedArchive = true;
 
-        CoreAdminHomeAPI::getInstance()->runScheduledTasks();
+        $this->scheduler = StaticContainer::get(Scheduler::class);
+        $this->scheduler->run();
 
         $this->logSection("");
     }
@@ -902,17 +1001,12 @@ class CronArchive
 
     public function invalidateRecentDate(string $dateStr, int $idSite): void
     {
-        $timezone = Site::getTimezoneFor($idSite);
-        $date = Date::factoryInTimezone($dateStr, $timezone);
-        $period = PeriodFactory::build('day', $date);
-
-        $params = new Parameters(new Site($idSite), $period, new Segment('', [$idSite], $period->getDateStart(), $period->getDateEnd()));
-
-        $loader = new Loader($params);
-        if ($loader->canSkipThisArchive()) {
-            $this->logger->debug("  " . ucfirst($dateStr) . " archive can be skipped due to no visits for idSite = $idSite, skipping invalidation...");
+        if ($this->skipInvalidatingRecentDates) {
             return;
         }
+
+        $timezone = Site::getTimezoneFor($idSite);
+        $date = Date::factoryInTimezone($dateStr, $timezone);
 
         $isYesterday = $dateStr === 'yesterday';
         $isToday = $dateStr === 'today';
@@ -989,7 +1083,8 @@ class CronArchive
 
             foreach ($this->segmentArchiving->getAllSegmentsToArchive($idSite) as $segmentDefinition) {
                 // check if the segment is available
-                if (!$this->isSegmentAvailable($segmentDefinition, [$idSite])) {
+                if (!Segment::isAvailable($segmentDefinition, [$idSite])) {
+                    $this->logger->info("Segment '" . $segmentDefinition . "' is not a supported segment");
                     continue;
                 }
 
@@ -1045,27 +1140,9 @@ class CronArchive
         }
     }
 
-
-    /**
-     * check if segments that contain dimensions that don't exist anymore
-     * @param $segmentDefinition
-     * @param $idSites
-     * @return bool
-     */
-    protected function isSegmentAvailable($segmentDefinition, $idSites): bool
-    {
-        try {
-            new Segment($segmentDefinition, $idSites);
-        } catch (\Exception $e) {
-            $this->logger->info("Segment '" . $segmentDefinition . "' is not a supported segment");
-            return false;
-        }
-        return true;
-    }
-
     private function canWeSkipInvalidatingBecauseInvalidationAlreadyInProgress(int $idSite, Period $period, ?Segment $segment = null): bool
     {
-        $invalidationsInProgress = $this->model->getInvalidationsInProgress($idSite);
+        $invalidationsInProgress = $this->model->getInvalidationsInProgress([$idSite]);
         $timezone = Site::getTimezoneFor($idSite);
 
         $doneFlag = Rules::getDoneFlagArchiveContainsAllPlugins($segment ?? new Segment('', [$idSite]));
